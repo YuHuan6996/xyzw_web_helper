@@ -1276,9 +1276,9 @@ const handleBulkAction = (key) => {
   }
 };
 
-const exportTokens = () => {
+const exportTokens =async () => {
   try {
-    const data = tokenStore.exportTokens();
+    const data = await tokenStore.exportTokens();
     const dataStr = JSON.stringify(data, null, 2);
     const dataBlob = new Blob([dataStr], { type: "application/json" });
 
@@ -1289,7 +1289,7 @@ const exportTokens = () => {
 
     message.success("Token数据已导出");
   } catch (error) {
-    message.error("导出失败");
+    message.error("导出失败",error);
   }
 };
 

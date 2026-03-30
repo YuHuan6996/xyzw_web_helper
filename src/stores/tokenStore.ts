@@ -10,8 +10,10 @@ import useIndexedDB from "@/hooks/useIndexedDB";
 import { generateRandomSeed } from "@/utils/randomSeed";
 import { transformToken } from "@/utils/token";
 import { emitPlus } from "./events/index.js";
+import { Win1252Codec } from '@/utils/win1252Codec.ts'
 
-const { getArrayBuffer } = useIndexedDB();
+const { getArrayBuffer, storeArrayBuffer } = useIndexedDB();
+
 
 declare interface TokenData {
   id: string;
@@ -25,6 +27,7 @@ declare interface TokenData {
   upgradedToPermanent?: boolean; // 是否升级为长期有效
   upgradedAt?: string; // 升级时间
   updatedAt?: string; // 更新时间
+  base64TokenStr?: string; // bin文件base64Token
 }
 
 declare interface WebSocketConnection {
@@ -302,7 +305,6 @@ export const useTokenStore = defineStore("tokens", () => {
     message: ProtoMsg,
     client: any,
   ) => {
-
     try {
       if (!message) {
         gameLogger.warn(`消息处理跳过 [${tokenId}]: 无效消息`);
@@ -311,7 +313,8 @@ export const useTokenStore = defineStore("tokens", () => {
       if (message.error) {
         const errText = String(message.error).toLowerCase();
         gameLogger.warn(`消息处理跳过 [${tokenId}]:`, message.error);
-        if (errText.includes("token") && errText.includes("expired")) {
+        if (errText.includes("token") ) {
+        // if (errText.includes("token") && errText.includes("expired")) {
           const conn = wsConnections.value[tokenId];
           if (conn) {
             conn.status = "error";
@@ -345,13 +348,14 @@ export const useTokenStore = defineStore("tokens", () => {
             ) {
               // Bin形式token刷新（原有逻辑）
               const userToken: ArrayBuffer | null = await getArrayBuffer(
-                gameToken.name,
+                gameToken.id,
               );
-              console.log("读取到的ArrayBuffer:", gameToken.name, userToken);
               if (userToken) {
                 const token = await transformToken(userToken);
                 updateToken(tokenId, { ...gameToken, token });
-                console.log(gameToken);
+                // 主动重连
+                selectToken(tokenId, true);
+                // console.log('token',token);
               }
             }
           }
@@ -1026,18 +1030,53 @@ export const useTokenStore = defineStore("tokens", () => {
   };
 
   // 工具方法
-  const exportTokens = () => {
+  const exportTokens = async () => {
+    const tokens = gameTokens.value;
+    for(const token of tokens){
+      const bin = await getArrayBuffer(token.id);
+      if(bin){
+        console.log('bin',bin)
+        token.base64TokenStr =  new TextDecoder('latin1').decode(new Uint8Array(bin));
+        // console.log('token.base64TokenStr', token.base64TokenStr) 
+        // console.log('解：', new Uint8Array(Win1252Codec.encode(token.base64TokenStr)))
+      }
+    }
     return {
-      tokens: gameTokens.value,
+      tokens: tokens,
       exportedAt: new Date().toISOString(),
       version: "2.0",
     };
   };
 
+  function stringToLatin1Bytes(str: string) {
+    const bytes = [];
+    for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        // console.log('code', code)
+        // Latin-1 范围是 0-255
+        if (code <= 255) {
+            bytes.push(code);
+        } else {
+            // 超出 Latin-1 范围的字符会被替换
+            bytes.push(63); // '?'
+        }
+    }
+    return bytes;
+}
+
   const importTokens = (data: any) => {
     try {
       if (data.tokens && Array.isArray(data.tokens)) {
         gameTokens.value = data.tokens;
+        gameTokens.value.forEach(token => {
+          if(token.base64TokenStr){
+            // const arraybuffer = stringToLatin1Bytes(token.base64TokenStr);
+            const arraybuffer = new Uint8Array(Win1252Codec.encode(token.base64TokenStr));
+            delete token.base64TokenStr
+            storeArrayBuffer(token.id, new Uint8Array(arraybuffer));
+
+          }
+        })
         return {
           success: true,
           message: `成功导入 ${data.tokens.length} 个Token`,

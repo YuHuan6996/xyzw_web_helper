@@ -1,10 +1,11 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// 安全导入可选依赖
 async function safeImport(moduleName, humanName) {
   try {
     return await import(moduleName);
@@ -19,7 +20,39 @@ async function safeImport(moduleName, humanName) {
   }
 }
 
-export default defineConfig(async () => {
+// 生产环境优化配置
+const productionOptimizations = {
+  terserOptions: {
+    compress: {
+      drop_console: true,
+      drop_debugger: true,
+      pure_funcs: ['console.log', 'console.info']
+    },
+    format: {
+      comments: false
+    }
+  },
+  rollupOptions: {
+    output: {
+      manualChunks: {
+        // 代码分割策略
+        'vendor-vue': ['vue', 'vue-router', 'pinia'],
+        'vendor-ui': ['@arco-design/web-vue', 'naive-ui'],
+        'vendor-utils': ['@vueuse/core', 'lodash-es'],
+        'vendor-network': ['axios', 'event-emitter3', 'p-queue'],
+        'vendor-codec': ['lz4js', 'crypto-js', 'iconv-lite']
+      }
+    }
+  }
+};
+
+export default defineConfig(async ({ command, mode }) => {
+  // 加载环境变量
+  const env = loadEnv(mode, process.cwd(), '');
+  const isProduction = mode === 'production';
+  const isDevelopment = mode === 'development';
+
+  // 动态导入可选插件
   let basicSsl;
   try {
     ({ default: basicSsl } = await import("@vitejs/plugin-basic-ssl"));
@@ -32,6 +65,7 @@ export default defineConfig(async () => {
     );
   }
 
+  // 安全导入各种插件模块
   const routerModule = await safeImport(
     "unplugin-vue-router/vite",
     "file-based routing",
@@ -60,6 +94,19 @@ export default defineConfig(async () => {
     "Vue I18n pre-compiler",
   );
 
+  // 可选的生产环境插件
+  const compressionModule = isProduction 
+    ? await safeImport("vite-plugin-compression", "compression")
+    : null;
+  const checkerModule = isDevelopment
+    ? await safeImport("vite-plugin-checker", "type checker")
+    : null;
+  const inspectModule = isDevelopment
+    ? await safeImport("vite-plugin-inspect", "bundle inspector")
+    : null;
+  const pwaModule = await safeImport("vite-plugin-pwa", "PWA");
+
+  // 插件配置
   const routerPlugin = routerModule?.default?.({
     routesFolder: "src/views",
     logs: true,
@@ -71,6 +118,10 @@ export default defineConfig(async () => {
   const autoImportPlugin = autoImportModule?.default?.({
     imports: ["vue", "vue-router", "vue-i18n"],
     dts: "src/auto-imports.d.ts",
+    eslintrc: {
+      enabled: true,
+      filepath: "./.eslintrc-auto-import.json",
+    }
   });
 
   const { ArcoResolver } = componentsResolversModule ?? {};
@@ -83,6 +134,7 @@ export default defineConfig(async () => {
           }),
         ]
       : [],
+    dts: "components.d.ts"
   });
 
   const unoCssPlugin = unoCssModule?.default?.();
@@ -92,6 +144,70 @@ export default defineConfig(async () => {
     include: path.resolve(__dirname, "./src/locales/**"),
   });
 
+  // 生产环境插件
+  const compressionPlugin = compressionModule?.default?.({
+    algorithm: "gzip",
+    ext: ".gz",
+    threshold: 10240,
+    deleteOriginFile: false
+  });
+
+  const checkerPlugin = checkerModule?.default?.({
+    typescript: true,
+    vueTsc: true,
+    eslint: {
+      lintCommand: 'eslint "./src/**/*.{vue,js,ts}"'
+    }
+  });
+
+  const inspectPlugin = inspectModule?.default?.({
+    build: true,
+    outputDir: '.vite-inspect'
+  });
+
+  // PWA配置
+  const pwaPlugin = pwaModule?.default?.({
+    registerType: 'autoUpdate',
+    devOptions: {
+      enabled: isDevelopment
+    },
+    manifest: {
+      name: 'XYZW Token Manager',
+      short_name: 'XYZW Helper',
+      description: 'XYZW游戏Token管理器',
+      theme_color: '#667eea',
+      icons: [
+        {
+          src: 'pwa-192x192.png',
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: 'pwa-512x512.png',
+          sizes: '512x512',
+          type: 'image/png'
+        }
+      ]
+    },
+    workbox: {
+      globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+      runtimeCaching: [
+        {
+          urlPattern: /^https:\/\/xxz-xyzw\.hortorgames\.com/,
+          handler: 'StaleWhileRevalidate',
+          options: {
+            cacheName: 'websocket-cache',
+            expiration: {
+              maxEntries: 10,
+              maxAgeSeconds: 60 * 60 * 24 // 24 hours
+            }
+          }
+        }
+      ]
+    }
+  });
+
+  // 构建插件数组
   const plugins = [
     routerPlugin && { ...routerPlugin, enforce: "pre" },
     vue(),
@@ -101,6 +217,10 @@ export default defineConfig(async () => {
     autoImportPlugin,
     componentsPlugin,
     vueI18nPlugin,
+    compressionPlugin,
+    checkerPlugin,
+    inspectPlugin,
+    pwaPlugin
   ].filter(Boolean);
 
   return {
@@ -120,6 +240,8 @@ export default defineConfig(async () => {
       port: 3000,
       open: true,
       host: true,
+      strictPort: false,
+      cors: true,
       proxy: {
         // 微信登录接口代理
         "/api/weixin": {
@@ -173,6 +295,54 @@ export default defineConfig(async () => {
           additionalData: '@use "@/assets/styles/variables.scss" as vars;',
         },
       },
+      postcss: {
+        plugins: [
+          ...(await safeImport("autoprefixer", "autoprefixer")).default 
+            ? [(await safeImport("autoprefixer", "autoprefixer")).default()] 
+            : []
+        ]
+      }
     },
+    build: {
+      target: 'esnext',
+      outDir: 'dist',
+      assetsDir: 'assets',
+      sourcemap: isDevelopment,
+      minify: isProduction ? 'terser' : false,
+      ...(isProduction ? productionOptimizations : {}),
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        external: [],
+        output: {
+          entryFileNames: 'assets/[name].[hash].js',
+          chunkFileNames: 'assets/[name].[hash].js',
+          assetFileNames: 'assets/[name].[hash].[ext]',
+          manualChunks: {
+            'vendor-vue': ['vue', 'vue-router', 'pinia'],
+            'vendor-ui': ['@arco-design/web-vue', 'naive-ui'],
+            'vendor-utils': ['@vueuse/core'],
+            'vendor-network': ['axios', 'event-emitter3', 'p-queue'],
+            'vendor-codec': ['lz4js', 'crypto-js', 'iconv-lite']
+          }
+        }
+      }
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+      __IS_DEV__: JSON.stringify(isDevelopment),
+      __IS_PROD__: JSON.stringify(isProduction)
+    },
+    optimizeDeps: {
+      include: [
+        'vue',
+        'vue-router',
+        'pinia',
+        '@vueuse/core',
+        '@arco-design/web-vue',
+        'naive-ui'
+      ],
+      exclude: ['vue-demi']
+    }
   };
 });
