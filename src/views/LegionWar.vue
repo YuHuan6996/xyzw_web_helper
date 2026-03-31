@@ -47,6 +47,11 @@
           </div>
         </div>
         <div class="legion-war-operation-item">
+          <n-button type="primary" @click="getBattlefieldInfo" :disabled="!isEntireBattlefield" style="padding:12px">
+            拉取数据(需进入战场后)
+          </n-button>
+        </div>
+        <div class="legion-war-operation-item">
           <n-button type="primary" @click="sendMessageToLegion" style="padding:12px">
             发送各战队免费复活到战队频道
           </n-button>
@@ -701,7 +706,7 @@ const fetchBattleRecords1 = async (getbattlefield) => {
       connectWebSocket();
       return;
     }
-    const baseWsUrl = getbattlefield?.info.domainName+`?p=${encodeURIComponent(tokenStore.selectedToken.token)}&e=x&sid2=${getbattlefield?.info.sid}&lang=chinese&sid2=${getbattlefield?.info.sid}`
+    const baseWsUrl = 'wss://xxz-xyzw-new.hortorgames.com/agent' +`?p=${encodeURIComponent(tokenStore.selectedToken.token)}&e=x&sid2=${getbattlefield?.info.sid}&lang=chinese&sid2=${getbattlefield?.info.sid}`
     hint.value = getbattlefield?.info.battlefieldId;
     legionWarWebSocket =  new XyzwLegionWarWebSocketClient({
       url: baseWsUrl,
@@ -815,6 +820,7 @@ onUnmounted(() => {
     .map-container {
       width: 100%;
       height: 100%;
+      min-height: 60vh; /* Ensure map has height on mobile */
       .mapCanvas {
         width: 100%;
         height: 100%;
@@ -858,6 +864,51 @@ onUnmounted(() => {
 
   .status-disconnected {
     color: var(--error-color);
+  }
+}
+
+@media (max-width: 768px) {
+  .legion-war-container {
+    flex-direction: column;
+    margin: 0;
+    
+    .legion-war-map {
+      width: 100%;
+      padding: var(--spacing-xs);
+      margin-bottom: var(--spacing-md);
+      
+      .map-title {
+        font-size: var(--font-size-sm);
+        padding: var(--spacing-xs);
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .map-container {
+        min-height: 50vh;
+      }
+    }
+
+    .legion-war-operation {
+      width: 100%;
+      padding: var(--spacing-xs);
+
+      .legion-war-operation-container {
+        flex-direction: row; /* Horizontal layout for operations on mobile if space allows, or keep column */
+        flex-wrap: wrap;
+        gap: var(--spacing-md);
+
+        .legion-war-operation-item {
+          width: 100%; /* Keep items full width for better touch targets */
+          padding: var(--spacing-xs) 0;
+          border-bottom: 1px solid var(--border-light);
+          
+          &:last-child {
+            border-bottom: none;
+          }
+        }
+      }
+    }
   }
 }
 </style>

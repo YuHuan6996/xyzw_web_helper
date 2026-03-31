@@ -41,6 +41,18 @@ class Logger {
     this.info = this.info.bind(this);
     this.debug = this.debug.bind(this);
     this.verbose = this.verbose.bind(this);
+    this.isDev = import.meta.env.DEV;
+
+    // 初始化 enableVerbose
+    // const savedVerbose = localStorage.getItem("ws_debug_verbose");
+    // if (savedVerbose !== null) {
+    //   this.enableVerbose = savedVerbose === "true";
+    // } else {
+    //   // 开发环境默认开启详细日志，生产环境默认关闭
+    //   this.enableVerbose = this.isDev;
+    // }
+
+    // this.level = this.getLogLevel();
   }
 
   getLogLevel() {
@@ -55,7 +67,7 @@ class Logger {
       return parseInt(saved, 10);
     }
 
-    return LOG_LEVELS.INFO; // 开发环境默认显示信息级别
+    return LOG_LEVELS.VERBOSE; // 开发环境默认显示详细级别
   }
 
   setLevel(level) {
